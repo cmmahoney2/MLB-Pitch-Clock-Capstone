@@ -1,4 +1,3 @@
-[mlb-pitch-clock-capstone-readme.md](https://github.com/user-attachments/files/34341113/mlb-pitch-clock-capstone-readme.md)
 # The Effects of the Pitch Clock Rule on MLB Performance and Market Efficiency
 
 Caitlyn Mahoney — Capstone project (MA-470), Worcester State University, Fall 2025
