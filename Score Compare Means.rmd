@@ -1,0 +1,317 @@
+---
+title: "Score analysis"
+output: html_document
+date: "2025-09-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#Load the Data
+library(datasets)
+library(rstatix)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r}
+# Calculate means for each stat by year
+year_means <- games_all %>%
+  group_by(Year) %>%
+  summarise(
+    mean_winning_score = mean(Winning.Score, na.rm = TRUE),
+    mean_losing_score  = mean(Losing.Score, na.rm = TRUE),
+    mean_total_score   = mean(Total.Score, na.rm = TRUE),
+    mean_margin = mean(Margin, na.rm = TRUE)
+  )
+
+year_means
+
+```
+
+
+```{r}
+#Summary Stats 2022
+summary_stats_22 <- games22 |>
+  summarise(
+    mean_winning_score = mean(Winning.Score),
+    sd_winning_score = sd(Winning.Score),
+    mean_losing_score = mean(Losing.Score),
+    sd_losing_score = sd(Losing.Score),
+    mean_total_score = mean(Total.Score),
+    sd_total_score = sd(Total.Score),
+    mean_margin = mean(Margin),
+    sd_margin = sd(Margin)
+  )
+
+```
+
+```{r}
+#Summary Stats 2023
+summary_stats_23 <- games23 |>
+  summarise(
+    mean_winning_score = mean(Winning.Score),
+    sd_winning_score = sd(Winning.Score),
+    mean_losing_score = mean(Losing.Score),
+    sd_losing_score = sd(Losing.Score),
+    mean_total_score = mean(Total.Score),
+    sd_total_score = sd(Total.Score),
+    mean_margin = mean(Margin),
+    sd_margin = sd(Margin)
+  )
+```
+
+```{r}
+#Summary Stats 2024
+summary_stats_24 <- games24 |>
+  summarise(
+    mean_winning_score = mean(Winning.Score),
+    sd_winning_score = sd(Winning.Score),
+    mean_losing_score = mean(Losing.Score),
+    sd_losing_score = sd(Losing.Score),
+    mean_total_score = mean(Total.Score),
+    sd_total_score = sd(Total.Score),
+    mean_margin = mean(Margin),
+    sd_margin = sd(Margin)
+  )
+```
+
+```{r}
+#Summary Stats All
+summary_stats_all <- games_all |>
+  group_by(Year) |>
+  summarise(
+    mean_winning_score = mean(Winning.Score),
+    sd_winning_score = sd(Winning.Score),
+    mean_losing_score = mean(Losing.Score),
+    sd_losing_score = sd(Losing.Score),
+    mean_total_score = mean(Total.Score),
+    sd_total_score = sd(Total.Score),
+    mean_margin = mean(Margin)
+  )
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(summary_stats_all, aes(x = factor(Year), y = mean_total_score)) +
+  geom_col(fill = "steelblue") +
+  geom_errorbar(aes(ymin = mean_total_score - sd_total_score,
+                    ymax = mean_total_score + sd_total_score),
+                width = 0.2, color = "black") +
+  labs(title = "Average Total Score by Year",
+       x = "Year", y = "Mean Total Score ± SD") +
+  theme_minimal()
+
+
+library(tidyr)
+
+library(tidyr)
+
+summary_long <- summary_stats_all |>
+  pivot_longer(cols = starts_with("mean_"),
+               names_to = "Metric", values_to = "Mean")
+
+ggplot(summary_long |> filter(Metric %in% c("mean_winning_score", "mean_losing_score")),
+       aes(x = Year, y = Mean, color = Metric)) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 3) +
+  labs(title = "Average Winning vs Losing Scores by Year",
+       x = "Year", y = "Mean Score", color = "Metric") +
+  scale_color_manual(values = c("mean_winning_score" = "darkgreen",
+                                "mean_losing_score" = "red"),
+                     labels = c("Winning Score", "Losing Score")) +
+  theme_minimal()
+
+
+ggplot(summary_stats_all, aes(x = Year, y = mean_margin)) +
+  geom_line(color = "purple", linewidth = 1.2) +
+  geom_point(size = 3, color = "purple") +
+  labs(title = "Average Margin of Victory by Year",
+       x = "Year", y = "Mean Margin") +
+  theme_minimal()
+
+```
+
+
+```{r}
+anova_result <- games_all |>
+  anova_test(Total.Score ~ Year)
+
+print(anova_result)
+summary(anova_result)
+```
+```{r}
+#Pairwise Comparisons without Adjustment
+
+pairwise_results <- games_all |>
+  pairwise_t_test(Total.Score ~ Year, p.adjust.method = "none")
+
+print(pairwise_results)
+```
+
+```{r}
+# Pairwise Comparisons with Adjustments
+
+#Bonferroni Correction
+pairwise_results_bonf <- games_all |>
+  pairwise_t_test(Total.Score ~ Year, p.adjust.method = "bonferroni")
+
+print(pairwise_results_bonf)
+pairwise_results_bonf <- pairwise_results_bonf |> rename(BONF_p.adj = p.adj)
+
+#Holm Correction
+pairwise_results_holm <- games_all |>
+  pairwise_t_test(Total.Score ~ Year, p.adjust.method = "holm")
+
+print(pairwise_results_holm)
+pairwise_results_holm <- pairwise_results_holm |> rename(HOLM_p.adj = p.adj)
+
+#False Discovery Rate (Benjamini-Hochberg)
+pairwise_results_fdr <- games_all |>
+  pairwise_t_test(Total.Score ~ Year, p.adjust.method = "fdr")
+
+print(pairwise_results_fdr)
+
+
+pairwise_results_fdr <- pairwise_results_fdr |> rename(FDR_p.adj = p.adj)
+
+#Without adjustment, we are more likely to find significant differences, but we risk false positives (Type I errors).
+#Bonferroni is very strict, reducing the likelihood of false positives but possibly missing real differences (false negatives).
+#Holm correction provides a balance, still controlling Type I errors but retaining more statistical power.
+#Benjamini-Hochberg correction allows for more discoveries, making it useful when multiple comparisons are needed, but it comes with a slightly increased risk of false positives.
+```
+
+
+```{r}
+# Summary Table
+comparison_table <-  
+bind_cols(pairwise_results,pairwise_results_bonf$BONF_p.adj, pairwise_results_holm$HOLM_p.adj,pairwise_results_fdr$FDR_p.adj)
+
+
+print(comparison_table)
+```
+
+```{r}
+#t-test 2022-2023
+
+#total score
+t.test(
+  Total.Score ~ Year,
+  data = subset(games_all, Year %in% c("2023","2022"))
+)
+
+#winning score
+t.test(
+  Winning.Score ~ Year,
+  data = subset(games_all, Year %in% c("2023","2022"))
+)
+
+#losing score
+t.test(
+  Losing.Score ~ Year,
+  data = subset(games_all, Year %in% c("2023","2022"))
+)
+
+#margin
+t.test(
+  Margin ~ Year,
+  data = subset(games_all, Year %in% c("2023","2022"))
+)
+```
+
+```{r}
+#t-test 2022-2024
+
+#total score
+t.test(
+  Total.Score ~ Year,
+  data = subset(games_all, Year %in% c("2022","2024"))
+)
+
+#winning score
+t.test(
+  Winning.Score ~ Year,
+  data = subset(games_all, Year %in% c("2022","2024"))
+)
+
+#losing score
+t.test(
+  Losing.Score ~ Year,
+  data = subset(games_all, Year %in% c("2022","2024"))
+)
+
+#margin
+t.test(
+  Margin ~ Year,
+  data = subset(games_all, Year %in% c("2022","2024"))
+)
+```
+
+```{r}
+#t-test 2023-2024
+t.test(
+  Total.Score ~ Year,
+  data = subset(games_all, Year %in% c("2023","2024"))
+)
+
+#winning score
+t.test(
+  Winning.Score ~ Year,
+  data = subset(games_all, Year %in% c("2023","2024"))
+)
+
+#losing score
+t.test(
+  Losing.Score ~ Year,
+  data = subset(games_all, Year %in% c("2023","2024"))
+)
+
+#margin
+t.test(
+  Margin ~ Year,
+  data = subset(games_all, Year %in% c("2023","2024"))
+)
+```
+
+```{r}
+# Get differences
+diffs <- data.frame(
+  stat = c("Winning.Score", "Losing.Score", "Total.Score", "Margin"),
+  `2023_vs_2022` = c(
+    year_means$mean_winning_score[year_means$Year == "2023"] -
+      year_means$mean_winning_score[year_means$Year == "2022"],
+    year_means$mean_losing_score[year_means$Year == "2023"] -
+      year_means$mean_losing_score[year_means$Year == "2022"],
+    year_means$mean_total_score[year_means$Year == "2023"] -
+      year_means$mean_total_score[year_means$Year == "2022"],
+    year_means$mean_margin[year_means$Year == "2023"] -
+      year_means$mean_margin[year_means$Year == "2022"]
+  ),
+  `2024_vs_2022` = c(
+    year_means$mean_winning_score[year_means$Year == "2024"] -
+      year_means$mean_winning_score[year_means$Year == "2022"],
+    year_means$mean_losing_score[year_means$Year == "2024"] -
+      year_means$mean_losing_score[year_means$Year == "2022"],
+    year_means$mean_total_score[year_means$Year == "2024"] -
+      year_means$mean_total_score[year_means$Year == "2022"],
+    year_means$mean_margin[year_means$Year == "2024"] -
+      year_means$mean_margin[year_means$Year == "2022"]
+  ),
+  `2024_vs_2023` = c(
+    year_means$mean_winning_score[year_means$Year == "2024"] -
+      year_means$mean_winning_score[year_means$Year == "2023"],
+    year_means$mean_losing_score[year_means$Year == "2024"] -
+      year_means$mean_losing_score[year_means$Year == "2023"],
+    year_means$mean_total_score[year_means$Year == "2024"] -
+      year_means$mean_total_score[year_means$Year == "2023"],
+    year_means$mean_margin[year_means$Year == "2024"] -
+      year_means$mean_margin[year_means$Year == "2023"]
+  )
+)
+
+diffs
+
+```
+
+
+

@@ -1,0 +1,88 @@
+---
+title: "pitching totals"
+output: html_document
+date: "2025-11-03"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# ------------------------------------------------------------
+# MLB Pitch Clock Analysis: T-tests on Total Pitches per Pitcher (2022–2024)
+# ------------------------------------------------------------
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+# 1. Load dataset
+pitches <- read_csv("Unnecessary Documents/total pitches 2022-2024.csv", show_col_types = FALSE)
+
+# Peek at column names
+glimpse(pitches)
+
+# If necessary, rename for consistency:
+# For example, if your file columns are: pitcher, team, year, n
+# pitches <- pitches %>% rename(Pitcher = pitcher, Year = year, Total_Pitches = n)
+
+# 2. Check summary by season
+summary_stats <- pitches %>%
+  group_by(year) %>%
+  summarise(
+    n_pitchers = n(),
+    mean_pitches = mean(n, na.rm = TRUE),
+    sd_pitches = sd(n, na.rm = TRUE)
+  )
+print(summary_stats)
+
+# 3. Run t-tests
+# Compare 2022 vs 2023
+t_22_23 <- t.test(n ~ year, data = filter(pitches, year %in% c(2022, 2023)))
+
+# Compare 2023 vs 2024
+t_23_24 <- t.test(n ~ year, data = filter(pitches, year %in% c(2023, 2024)))
+
+# Compare 2022 vs 2024 (optional)
+t_22_24 <- t.test(n ~ year, data = filter(pitches, year %in% c(2022, 2024)))
+
+# 4. Print results
+cat("\n--- T-Test Results ---\n")
+cat("\n2022 vs 2023:\n")
+print(t_22_23)
+
+cat("\n2023 vs 2024:\n")
+print(t_23_24)
+
+cat("\n2022 vs 2024:\n")
+print(t_22_24)
+
+# 5. Boxplot for visualization
+ggplot(pitches, aes(x = factor(year), y = n)) +
+  geom_boxplot(fill = "lightblue", color = "black") +
+  labs(title = "Total Pitches per Pitcher by Season",
+       x = "Season",
+       y = "Total Pitches") +
+  theme_minimal(base_size = 14)
+
+
+```
+
+```{r}
+t_22_23 <- t.test(n ~ year, data = filter(pitches, year %in% c(2022, 2023)))
+cat("\n2022 vs 2023:\n")
+print(t_22_23)
+```
+
+```{r}
+t_22_24 <- t.test(n ~ year, data = filter(pitches, year %in% c(2022, 2024)))
+cat("\n2022 vs 2024:\n")
+print(t_22_24)
+```
+
+```{r}
+t_23_24 <- t.test(n ~ year, data = filter(pitches, year %in% c(2023, 2024)))
+cat("\n2023 vs 2024:\n")
+print(t_23_24)
+```
+

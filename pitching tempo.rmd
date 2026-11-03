@@ -1,0 +1,370 @@
+---
+title: "pitch tempo"
+output: html_document
+date: "2025-11-03"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# --------------------------------------------------------
+# STEP 1: Load packages and read your Statcast dataset
+# --------------------------------------------------------
+library(readr)
+library(dplyr)
+
+# Read in your file
+pitch <- read_csv("Unnecessary Documents/pitching .csv", show_col_types = FALSE)
+
+# Peek at structure
+glimpse(pitch)
+
+# Make sure column names include: Pitcher, Year, IP, ERA, etc.
+# If not, adjust names like below:
+# pitch <- pitch %>% rename(Pitcher = Name, Year = Season, IP = InningsPitched)
+
+# --------------------------------------------------------
+# STEP 2: Convert types and clean numeric columns
+# --------------------------------------------------------
+pitch <- pitch %>%
+  mutate(
+    Year = as.integer(Year),
+    IP = as.numeric(IP)
+  )
+
+# --------------------------------------------------------
+# STEP 3: Filter pitchers with enough innings per season
+# --------------------------------------------------------
+min_IP <- 50  # You can change this to 40, 60, etc.
+qualified <- pitch %>%
+  filter(IP >= min_IP)
+
+# --------------------------------------------------------
+# STEP 4: Keep only pitchers that appear in ALL three seasons
+# --------------------------------------------------------
+consistent_pitchers <- qualified %>%
+  group_by(Pitcher) %>%
+  filter(all(c(2022, 2023, 2024) %in% Year)) %>%
+  ungroup()
+
+# --------------------------------------------------------
+# STEP 5: Check how many pitchers remain
+# --------------------------------------------------------
+consistent_pitchers %>%
+  summarise(unique_pitchers = n_distinct(Pitcher))
+
+# Optional: verify a few random pitchers
+consistent_pitchers %>%
+  filter(Pitcher %in% sample(unique(Pitcher), 5)) %>%
+  arrange(Pitcher, Year)
+
+# --------------------------------------------------------
+# STEP 6: Save the cleaned dataset
+# --------------------------------------------------------
+write_csv(consistent_pitchers, "consistent_pitchers_2022_2024.csv")
+
+# Now you can run t-tests or ANOVA on these consistent pitchers
+
+```
+
+```{r}
+pitch_tempo <- read_csv("pitching_stats_tempo.csv")
+
+pitch_tempo |>
+  filter(Year == 2022) |>
+  summarise(
+    mean_empty_tempo = mean(`Empty Tempo`, na.rm = TRUE),
+    mean_runners_tempo = mean(`Runners Tempo`, na.rm = TRUE)
+  )
+```
+
+```{r}
+library(tidyverse)
+# Define the stats to use for pitch_strength
+pitch_tempo <- pitch_tempo |>
+    mutate(
+      pitch_strength = scale(`K%`) + -scale(BB) + -scale(HR) + scale(`Whiff%`) + -scale(xwOBA) + -scale(`AVG EV`) + -scale(`Hard Hit%`) + scale(`First Strike%`) + scale(`GB%`))
+```
+
+```{r}
+baseline_2022 <- pitch_tempo |>
+  filter(Year == 2022) |>
+  transmute(
+    player_id,
+    pitch_speed_empty22   = if_else(`Empty Tempo`   <= 18.1234,  "Fast", "Slow",  missing = NA_character_),
+    pitch_speed_runners22 = if_else(`Runners Tempo` <= 23.25745, "Fast", "Slow",  missing = NA_character_)
+  )
+
+# 3) Attach those baseline labels to ALL seasons
+pitch_tempo <- pitch_tempo |>
+  left_join(baseline_2022, by = "player_id")
+
+pitch_tempo |>
+  filter(Year == 2022) |>
+  summarise(
+    num_slow_empty = sum(pitch_speed_empty22 == 'Slow'),
+    num_fast_empty = sum(pitch_speed_empty22 == 'Fast'),
+    num_slow_runners = sum(pitch_speed_runners22 == 'Slow'),
+    num_fast_runners = sum(pitch_speed_runners22 == 'Fast')
+            )
+```
+
+```{r}
+
+# Paired t-test for 2022 vs 2023
+paired_22_23 <- pitch_tempo |>
+  filter(Year %in% c(2022, 2023)) |>
+  select(player_id, Year, pitch_strength) |>
+  pivot_wider(names_from = Year, values_from = pitch_strength) |>
+  drop_na()
+
+t.test(paired_22_23$`2023`, paired_22_23$`2022`, paired = TRUE)
+
+
+paired_22_24 <- pitch_tempo |>
+  filter(Year %in% c(2022, 2024)) |>
+  select(player_id, Year, pitch_strength) |>
+  pivot_wider(names_from = Year, values_from = pitch_strength) |>
+  drop_na()
+
+t.test(paired_22_24$`2024`, paired_22_24$`2022`, paired = TRUE)
+
+
+paired_23_24 <- pitch_tempo |>
+  filter(Year %in% c(2023, 2024)) |>
+  select(player_id, Year, pitch_strength) |>
+  pivot_wider(names_from = Year, values_from = pitch_strength) |>
+  drop_na()
+
+t.test(paired_23_24$`2024`, paired_23_24$`2023`, paired = TRUE)
+```
+
+```{r}
+t.test(
+  pitch_strength ~ pitch_speed_empty22,
+  data = subset(pitch_tempo, Year == 2022)
+)
+
+
+t.test(
+  pitch_strength ~ pitch_speed_empty22,
+  data = subset(pitch_tempo, Year == 2023)
+)
+
+
+t.test(
+  pitch_strength ~ pitch_speed_empty22,
+  data = subset(pitch_tempo, Year == 2024)
+)
+
+```
+
+```{r}
+# Filter only the slow pitchers (based on 2022 runner tempo)
+slow_pitchers_runners22_23 <- pitch_tempo %>%
+  filter(pitch_speed_runners22 == "Slow", Year %in% c(2022, 2023)) %>%
+  select(player_id, Pitcher, Year, pitch_strength)
+
+# Reshape so each pitcher has both seasons side-by-side
+slow_wide_runners22_23 <- slow_pitchers_runners22_23 %>%
+  tidyr::pivot_wider(names_from = Year, values_from = pitch_strength, names_prefix = "pitch_strength_")
+
+# Run paired t-test
+t.test(slow_wide_runners22_23$pitch_strength_2023, slow_wide_runners22_23$pitch_strength_2022, paired = TRUE)
+
+
+
+
+
+#Fast
+fast_pitchers_runners22_23 <- pitch_tempo %>%
+  filter(pitch_speed_empty22 == "Fast", Year %in% c(2022, 2023)) %>%
+  select(player_id, Pitcher, Year, pitch_strength)
+
+fast_wide_runners22_23 <- fast_pitchers_runners22_23 %>%
+  tidyr::pivot_wider(names_from = Year, values_from = pitch_strength, names_prefix = "pitch_strength_")
+
+t.test(fast_wide_runners22_23$pitch_strength_2023, fast_wide_runners22_23$pitch_strength_2022, paired = TRUE)
+```
+
+
+```{r}
+# Filter only the slow pitchers (based on 2022 runner tempo)
+slow_pitchers_runners22_24 <- pitch_tempo %>%
+  filter(pitch_speed_runners22 == "Slow", Year %in% c(2022, 2024)) %>%
+  select(player_id, Pitcher, Year, pitch_strength)
+
+# Reshape so each pitcher has both seasons side-by-side
+slow_wide_runners22_24 <- slow_pitchers_runners22_24 %>%
+  tidyr::pivot_wider(names_from = Year, values_from = pitch_strength, names_prefix = "pitch_strength_")
+
+# Run paired t-test
+t.test(slow_wide_runners22_24$pitch_strength_2024, slow_wide_runners22_24$pitch_strength_2022, paired = TRUE)
+
+
+
+
+
+#Fast
+fast_pitchers_runners22_24 <- pitch_tempo %>%
+  filter(pitch_speed_empty22 == "Fast", Year %in% c(2022, 2024)) %>%
+  select(player_id, Pitcher, Year, pitch_strength)
+
+fast_wide_runners22_24 <- fast_pitchers_runners22_24 %>%
+  tidyr::pivot_wider(names_from = Year, values_from = pitch_strength, names_prefix = "pitch_strength_")
+
+t.test(fast_wide_runners22_24$pitch_strength_2024, fast_wide_runners22_24$pitch_strength_2022, paired = TRUE)
+```
+
+
+```{r}
+# Filter only the slow pitchers (based on 2022 runner tempo)
+slow_pitchers_runners23_24 <- pitch_tempo %>%
+  filter(pitch_speed_runners22 == "Slow", Year %in% c(2023, 2024)) %>%
+  select(player_id, Pitcher, Year, pitch_strength)
+
+# Reshape so each pitcher has both seasons side-by-side
+slow_wide_runners23_24 <- slow_pitchers_runners23_24 %>%
+  tidyr::pivot_wider(names_from = Year, values_from = pitch_strength, names_prefix = "pitch_strength_")
+
+# Run paired t-test
+t.test(slow_wide_runners23_24$pitch_strength_2024, slow_wide_runners23_24$pitch_strength_2023, paired = TRUE)
+
+
+
+
+
+
+#Fast
+fast_pitchers_runners23_24 <- pitch_tempo %>%
+  filter(pitch_speed_empty22 == "Fast", Year %in% c(2023, 2024)) %>%
+  select(player_id, Pitcher, Year, pitch_strength)
+
+fast_wide_runners23_24 <- fast_pitchers_runners23_24 %>%
+  tidyr::pivot_wider(names_from = Year, values_from = pitch_strength, names_prefix = "pitch_strength_")
+
+t.test(fast_wide_runners23_24$pitch_strength_2024, fast_wide_runners23_24$pitch_strength_2023, paired = TRUE)
+```
+
+```{r}
+# Filter only the slow pitchers (based on 2022 empty-base tempo)
+slow_pitchers_empty22_23 <- pitch_tempo %>%
+  filter(pitch_speed_empty22 == "Slow", Year %in% c(2022, 2023)) %>%
+  select(player_id, Pitcher, Year, pitch_strength)
+
+# Reshape so each pitcher has both seasons side-by-side
+slow_wide_empty22_23 <- slow_pitchers_empty22_23 %>%
+  tidyr::pivot_wider(names_from = Year, values_from = pitch_strength, names_prefix = "pitch_strength_")
+
+# Run paired t-test
+t.test(slow_wide_empty22_23$pitch_strength_2023, slow_wide_empty22_23$pitch_strength_2022, paired = TRUE)
+
+
+
+
+
+#Fast
+fast_pitchers_empty22_23 <- pitch_tempo %>%
+  filter(pitch_speed_empty22 == "Fast", Year %in% c(2022, 2023)) %>%
+  select(player_id, Pitcher, Year, pitch_strength)
+
+fast_wide_empty22_23 <- fast_pitchers_empty22_23 %>%
+  tidyr::pivot_wider(names_from = Year, values_from = pitch_strength, names_prefix = "pitch_strength_")
+
+t.test(fast_wide_empty22_23$pitch_strength_2023, fast_wide_empty22_23$pitch_strength_2022, paired = TRUE)
+```
+
+
+```{r}
+# Filter only the slow pitchers (based on 2022 empty-base tempo)
+slow_pitchers_empty22_24 <- pitch_tempo %>%
+  filter(pitch_speed_empty22 == "Slow", Year %in% c(2022, 2024)) %>%
+  select(player_id, Pitcher, Year, pitch_strength)
+
+# Reshape so each pitcher has both seasons side-by-side
+slow_wide_empty22_24 <- slow_pitchers_empty22_24 %>%
+  tidyr::pivot_wider(names_from = Year, values_from = pitch_strength, names_prefix = "pitch_strength_")
+
+# Run paired t-test
+t.test(slow_wide_empty22_24$pitch_strength_2024, slow_wide_empty22_24$pitch_strength_2022, paired = TRUE)
+
+
+
+
+
+#Fast
+fast_pitchers_empty22_24 <- pitch_tempo %>%
+  filter(pitch_speed_empty22 == "Fast", Year %in% c(2022, 2024)) %>%
+  select(player_id, Pitcher, Year, pitch_strength)
+
+fast_wide_empty22_24 <- fast_pitchers_empty22_24 %>%
+  tidyr::pivot_wider(names_from = Year, values_from = pitch_strength, names_prefix = "pitch_strength_")
+
+t.test(fast_wide_empty22_24$pitch_strength_2024, fast_wide_empty22_24$pitch_strength_2022, paired = TRUE)
+```
+
+
+```{r}
+# Filter only the slow pitchers (based on 2022 empty-base tempo)
+slow_pitchers_empty23_24 <- pitch_tempo %>%
+  filter(pitch_speed_empty22 == "Slow", Year %in% c(2023, 2024)) %>%
+  select(player_id, Pitcher, Year, pitch_strength)
+
+# Reshape so each pitcher has both seasons side-by-side
+slow_wide_empty23_24 <- slow_pitchers_empty23_24 %>%
+  tidyr::pivot_wider(names_from = Year, values_from = pitch_strength, names_prefix = "pitch_strength_")
+
+# Run paired t-test
+t.test(slow_wide_empty23_24$pitch_strength_2024, slow_wide_empty23_24$pitch_strength_2023, paired = TRUE)
+
+
+
+
+
+
+#Fast
+fast_pitchers_empty23_24 <- pitch_tempo %>%
+  filter(pitch_speed_empty22 == "Fast", Year %in% c(2023, 2024)) %>%
+  select(player_id, Pitcher, Year, pitch_strength)
+
+fast_wide_empty23_24 <- fast_pitchers_empty23_24 %>%
+  tidyr::pivot_wider(names_from = Year, values_from = pitch_strength, names_prefix = "pitch_strength_")
+
+t.test(fast_wide_empty23_24$pitch_strength_2024, fast_wide_empty23_24$pitch_strength_2023, paired = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# compute mean pitch_strength by group/year
+ps_summary <- pitch_tempo %>%
+  filter(!is.na(pitch_speed_runners22)) %>%  # using runners-based grouping
+  group_by(Year, pitch_speed_runners22) %>%
+  summarise(mean_strength = mean(pitch_strength, na.rm = TRUE), .groups = "drop")
+
+ps_summary$pitch_speed_runners22 <- factor(
+  ps_summary$pitch_speed_runners22,
+  levels = c("Fast", "Slow"),
+  labels = c("Fast Pitchers", "Slow Pitchers")
+)
+
+ggplot(ps_summary, aes(x = Year, y = mean_strength, 
+                       color = pitch_speed_runners22,
+                       group = pitch_speed_runners22)) +
+  geom_line(size = 1.3) +
+  geom_point(size = 3) +
+  labs(
+    title = "Mean Pitch Strength by Tempo Group (2022–2024)",
+    subtitle = "Pitch strength dropped in 2023, especially for slow pitchers",
+    x = "Season",
+    y = "Pitch Strength",
+    color = "Tempo Group"
+  ) +
+  theme_minimal(base_size = 15)
+
+
+```
+

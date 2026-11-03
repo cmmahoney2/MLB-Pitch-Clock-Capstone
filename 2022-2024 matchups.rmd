@@ -1,0 +1,667 @@
+---
+title: '2022-2024'
+output: html_document
+date: "2025-09-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(dplyr)
+library(readxl)
+library(stringr)
+library(readr)
+```
+
+
+```{r}
+gl22 <- read.csv("Unnecessary Documents/gl2022.txt", header = FALSE, stringsAsFactors = FALSE)
+
+games22 <- gl22 %>%
+  mutate(
+    # Make sure V1 is character
+    V1 = as.character(V1)
+  ) %>%
+  transmute(
+    Year = substr(V1, 1, 4),                     # first 4 chars = Year
+    Date = as.Date(V1, format = "%Y%m%d"),       # convert yyyymmdd to Date
+    Winning.Team = ifelse(as.integer(V10) > as.integer(V11), V4, V7),
+    Losing.Team  = ifelse(as.integer(V10) > as.integer(V11), V7, V4),
+    Winning.Score = pmax(as.integer(V10), as.integer(V11)),
+    Losing.Score  = pmin(as.integer(V10), as.integer(V11)),
+    Total.Score   = as.integer(V10) + as.integer(V11),
+    Margin = as.integer(Winning.Score) - as.integer(Losing.Score)
+  )
+
+head(games22, 10)
+
+# Save to a CSV
+write.csv(games22, "Unnecessary Documents/mlb2022_results.csv", row.names = FALSE)
+```
+
+```{r}
+gl23 <- read.csv("Unnecessary Documents/gl2023.txt", header = FALSE, stringsAsFactors = FALSE)
+
+games23 <- gl23 %>%
+  mutate(
+    # Make sure V1 is character
+    V1 = as.character(V1)
+  ) %>%
+  transmute(
+    Year = substr(V1, 1, 4),                     # first 4 chars = Year
+    Date = as.Date(V1, format = "%Y%m%d"),       # convert yyyymmdd to Date
+    Winning.Team = ifelse(as.integer(V10) > as.integer(V11), V4, V7),
+    Losing.Team  = ifelse(as.integer(V10) > as.integer(V11), V7, V4),
+    Winning.Score = pmax(as.integer(V10), as.integer(V11)),
+    Losing.Score  = pmin(as.integer(V10), as.integer(V11)),
+    Total.Score   = as.integer(V10) + as.integer(V11),
+    Margin = as.integer(Winning.Score) - as.integer(Losing.Score)
+  )
+
+head(games23, 10)
+
+# Save to a CSV
+write.csv(games23, "Unnecessary Documents/mlb2023_results.csv", row.names = FALSE)
+```
+
+```{r}
+gl24 <- read.csv("Unnecessary Documents/gl2024.txt", header = FALSE, stringsAsFactors = FALSE)
+
+games24 <- gl24 %>%
+  mutate(
+    # Make sure V1 is character
+    V1 = as.character(V1)
+  ) %>%
+  transmute(
+    Year = substr(V1, 1, 4),                     # first 4 chars = Year
+    Date = as.Date(V1, format = "%Y%m%d"),       # convert yyyymmdd to Date
+    Winning.Team = ifelse(as.integer(V10) > as.integer(V11), V4, V7),
+    Losing.Team  = ifelse(as.integer(V10) > as.integer(V11), V7, V4),
+    Winning.Score = pmax(as.integer(V10), as.integer(V11)),
+    Losing.Score  = pmin(as.integer(V10), as.integer(V11)),
+    Total.Score   = as.integer(V10) + as.integer(V11),
+    Margin = as.integer(Winning.Score) - as.integer(Losing.Score)
+  )
+
+head(games24, 10)
+
+# Save to a CSV
+write.csv(games24, "Unnecessary Documents/mlb2024_results.csv", row.names = FALSE)
+```
+
+```{r}
+# Combine datasets into one big dataset
+games_all <- dplyr::bind_rows(games22, games23, games24)
+
+# Preview first rows
+head(games_all)
+```
+
+```{r}
+# 1) read in excel file
+odds_22 <- read_excel("Unnecessary Documents/Oddsshark - 2022.xlsx")
+
+# 2) Clean into a tidy O/U dataset
+ou_lines <- odds_22 |>
+  filter(!is.na(date), !is.na(`team 2`)) |>
+  transmute(
+    Date      = as.Date(date),
+    Team      = `team 1`,
+    Opponent0 = `team 2`,
+# Home/Away based on the leading marker in Opponent0 ("vs" = home, "@" = away)
+    HomeAway  = case_when(
+      str_starts(Opponent0, "vs") ~ "Home",
+      str_starts(Opponent0, "@")  ~ "Away",
+      TRUE ~ NA_character_
+    ),
+    Opponent  = str_remove(Opponent0, "^(vs|@)\\s*"),
+    OU_Result = `O/U`,           # column with O/U result
+    OU_Line   = as.numeric(`Lines`) # column with O/U line
+  ) %>%
+# Create explicit HomeTeam/AwayTeam
+  mutate(
+    HomeTeam = if_else(HomeAway == "Home", Team, Opponent),
+    AwayTeam = if_else(HomeAway == "Home", Opponent, Team)
+  ) %>%
+# Keep only one row per game (home perspective)
+  filter(HomeAway == "Home") %>%
+  distinct(Date, HomeTeam, AwayTeam, .keep_all = TRUE) %>%
+  arrange(Date, HomeTeam, AwayTeam)
+
+# 3) Check the result
+head(ou_lines)
+
+# 4) Save to CSV for joining with Retrosheet scores
+write.csv(ou_lines, "Unnecessary Documents/OU_Lines_2022.csv", row.names = FALSE)
+
+```
+
+```{r}
+# --- 1) Load your files ---
+res <- read_csv("Unnecessary Documents/mlb2022_results.csv")   # Year, Date, Winning.Team, Losing.Team, ...
+ou  <- read_csv("Unnecessary Documents/OU_Lines_2022.csv")     # Date, HomeTeam, AwayTeam, OU_Line, OU_Result, ...
+
+# --- 2) Map OddsShark team names -> Retrosheet 3-letter codes ---
+name_to_code <- c(
+  "Arizona"="ARI","Atlanta"="ATL","Baltimore"="BAL","Boston"="BOS",
+  "Chi Cubs"="CHN","Chi White Sox"="CHA","Cincinnati"="CIN","Cleveland"="CLE",
+  "Colorado"="COL","Detroit"="DET","Houston"="HOU","Kansas City"="KCA",
+  "LA Angels"="ANA","LA Dodgers"="LAN","Miami"="MIA","Milwaukee"="MIL",
+  "Minnesota"="MIN","NY Mets"="NYN","NY Yankees"="NYA","Oakland"="OAK",
+  "Philadelphia"="PHI","Pittsburgh"="PIT","San Diego"="SDN","San Francisco"="SFN",
+  "Seattle"="SEA","St. Louis"="SLN","Tampa Bay"="TBA","Texas"="TEX",
+  "Toronto"="TOR","Washington"="WAS"
+)
+
+# Ensure Date is Date type
+res <- res %>% mutate(Date = as.Date(Date))
+ou  <- ou  %>% mutate(Date = as.Date(Date))
+
+# --- 3) Build an unordered "pair key" for both tables (so home/away doesn't matter) ---
+# RESULTS: from winner/loser codes
+res_keyed <- res %>%
+  mutate(
+    pair_codes = if_else(Winning.Team < Losing.Team,
+                         paste(Winning.Team, Losing.Team, sep = "-"),
+                         paste(Losing.Team, Winning.Team, sep = "-"))
+  )
+
+# OU LINES: map names to codes, then make the same unordered key
+ou_keyed <- ou %>%
+  mutate(
+    HomeCode = name_to_code[HomeTeam],
+    AwayCode = name_to_code[AwayTeam],
+    pair_codes = if_else(HomeCode < AwayCode,
+                         paste(HomeCode, AwayCode, sep = "-"),
+                         paste(AwayCode, HomeCode, sep = "-"))
+  )
+
+# --- 4) Handle doubleheaders: add an occurrence index per (Date, pair) in each table ---
+res_keyed <- res_keyed %>%
+  arrange(Date) %>%
+  group_by(Date, pair_codes) %>%
+  mutate(game_n = row_number()) %>%
+  ungroup()
+
+ou_keyed <- ou_keyed %>%
+  arrange(Date) %>%
+  group_by(Date, pair_codes) %>%
+  mutate(game_n = row_number()) %>%
+  ungroup()
+
+# --- 5) Preserve original order of RESULTS ---
+res_keyed <- res_keyed %>% mutate(row_id = row_number())
+
+# --- 6) Join O/U onto RESULTS by Date + pair + occurrence ---
+merged <- res_keyed %>%
+  left_join(
+    ou_keyed %>% select(Date, pair_codes, game_n, OU_Line, OU_Result,
+                        HomeTeam, AwayTeam, HomeCode, AwayCode),
+    by = c("Date","pair_codes","game_n")
+  ) %>%
+  arrange(row_id) %>%      # restore original order
+  select(-row_id)
+
+# --- 7) Save the merged file ---
+write_csv(merged, "Unnecessary Documents/mlb2022_results_with_OU.csv")
+
+```
+
+```{r}
+# --- files ---
+res <- read_csv("Unnecessary Documents/mlb2022_results.csv")   # has Year/Date/Winner/Loser/Scores/Total.Score/Margin
+ou  <- read_csv("Unnecessary Documents/OU_Lines_2022.csv")     # has Date, HomeTeam, AwayTeam, OU_Result (and maybe OU_Line)
+
+# --- team name map: OddsShark -> Retrosheet codes ---
+name_to_code <- c(
+  "Arizona"="ARI","Atlanta"="ATL","Baltimore"="BAL","Boston"="BOS",
+  "Chi Cubs"="CHN","Chicago Cubs"="CHN",
+  "Chi White Sox"="CHA","Chicago White Sox"="CHA",
+  "Cincinnati"="CIN","Cleveland"="CLE","Colorado"="COL","Detroit"="DET",
+  "Houston"="HOU","Kansas City"="KCA",
+  "LA Angels"="ANA","Los Angeles Angels"="ANA",
+  "LA Dodgers"="LAN","Los Angeles Dodgers"="LAN",
+  "Miami"="MIA","Milwaukee"="MIL","Minnesota"="MIN",
+  "NY Mets"="NYN","New York Mets"="NYN",
+  "NY Yankees"="NYA","New York Yankees"="NYA",
+  "Oakland"="OAK","Philadelphia"="PHI","Pittsburgh"="PIT",
+  "San Diego"="SDN","San Francisco"="SFN",
+  "Seattle"="SEA","St. Louis"="SLN","Tampa Bay"="TBA",
+  "Texas"="TEX","Toronto"="TOR","Washington"="WAS"
+)
+
+# ensure Date is Date
+res <- res %>% mutate(Date = as.Date(Date))
+ou  <- ou  %>% mutate(Date = as.Date(Date))
+
+# --- unordered team-pair key (home/away agnostic) ---
+res_keyed <- res %>%
+  mutate(
+    pair_codes = if_else(Winning.Team < Losing.Team,
+                         paste(Winning.Team, Losing.Team, sep = "-"),
+                         paste(Losing.Team, Winning.Team, sep = "-"))
+  ) %>%
+  arrange(Date) %>%
+  group_by(Date, pair_codes) %>%
+  mutate(game_n = row_number()) %>%   # handles doubleheaders
+  ungroup() %>%
+  mutate(row_id = row_number())       # preserve original order
+
+ou_keyed <- ou %>%
+  mutate(
+    HomeCode = name_to_code[HomeTeam],
+    AwayCode = name_to_code[AwayTeam],
+    pair_codes = if_else(HomeCode < AwayCode,
+                         paste(HomeCode, AwayCode, sep = "-"),
+                         paste(AwayCode, HomeCode, sep = "-"))
+  ) %>%
+  arrange(Date) %>%
+  group_by(Date, pair_codes) %>%
+  mutate(game_n = row_number()) %>%
+  ungroup()
+
+# --- join, restore order, and keep only requested columns ---
+final <- res_keyed %>%
+  left_join(
+    ou_keyed %>% select(Date, pair_codes, game_n, OU_Result),
+    by = c("Date","pair_codes","game_n")
+  ) %>%
+  arrange(row_id) %>%
+  select(
+    Year, Date,
+    `Winning Team` = Winning.Team,
+    `Losing Team`  = Losing.Team,
+    `Winning Score`= Winning.Score,
+    `Losing Score` = Losing.Score,
+    `Total Score`  = Total.Score,
+    Margin,
+    `OU Result`    = OU_Result
+  )
+
+# write it out
+write_csv(final, "Unnecessary Documents/mlb2022_results_with_OU_MINIMAL_RCODE.csv")
+
+# quick sanity check
+cat("Rows:", nrow(final), "\nMissing OU results:", sum(is.na(final$`OU Result`)), "\n")
+
+```
+
+```{r}
+# 1) Read your export
+raw <- read_excel("Unnecessary Documents/Oddsshark - 2023.xlsx")
+
+# 2) Clean into a tidy O/U dataset
+ou_lines <- raw %>%
+  filter(!is.na(date), !is.na(`team 2`)) %>%
+  transmute(
+    Date      = as.Date(date),
+    Team      = `team 1`,
+    Opponent0 = `team 2`,
+    # Home/Away based on the leading marker in Opponent0 ("vs" = home, "@" = away)
+    HomeAway  = case_when(
+      str_starts(Opponent0, "vs") ~ "Home",
+      str_starts(Opponent0, "@")  ~ "Away",
+      TRUE ~ NA_character_
+    ),
+    Opponent  = str_remove(Opponent0, "^(vs|@)\\s*"),
+    OU_Result = `O/U`,           # column with O/U result
+    OU_Line   = as.numeric(`Lines`) # column with O/U line
+  ) %>%
+  # Create explicit HomeTeam/AwayTeam
+  mutate(
+    HomeTeam = if_else(HomeAway == "Home", Team, Opponent),
+    AwayTeam = if_else(HomeAway == "Home", Opponent, Team)
+  ) %>%
+  # Keep only one row per game (home perspective)
+  filter(HomeAway == "Home") %>%
+  distinct(Date, HomeTeam, AwayTeam, .keep_all = TRUE) %>%
+  arrange(Date, HomeTeam, AwayTeam)
+
+# 3) Check the result
+head(ou_lines)
+
+# 4) Save to CSV for joining with Retrosheet scores
+write.csv(ou_lines, "Unnecessary Documents/OU_Lines_2023.csv", row.names = FALSE)
+
+```
+
+```{r}
+# --- 1) Load your files ---
+res <- read_csv("Unnecessary Documents/mlb2023_results.csv")   # Year, Date, Winning.Team, Losing.Team, ...
+ou  <- read_csv("Unnecessary Documents/OU_Lines_2023.csv")     # Date, HomeTeam, AwayTeam, OU_Line, OU_Result, ...
+
+# --- 2) Map OddsShark team names -> Retrosheet 3-letter codes ---
+name_to_code <- c(
+  "Arizona"="ARI","Atlanta"="ATL","Baltimore"="BAL","Boston"="BOS",
+  "Chi Cubs"="CHN","Chi White Sox"="CHA","Cincinnati"="CIN","Cleveland"="CLE",
+  "Colorado"="COL","Detroit"="DET","Houston"="HOU","Kansas City"="KCA",
+  "LA Angels"="ANA","LA Dodgers"="LAN","Miami"="MIA","Milwaukee"="MIL",
+  "Minnesota"="MIN","NY Mets"="NYN","NY Yankees"="NYA","Oakland"="OAK",
+  "Philadelphia"="PHI","Pittsburgh"="PIT","San Diego"="SDN","San Francisco"="SFN",
+  "Seattle"="SEA","St. Louis"="SLN","Tampa Bay"="TBA","Texas"="TEX",
+  "Toronto"="TOR","Washington"="WAS"
+)
+
+# Ensure Date is Date type
+res <- res %>% mutate(Date = as.Date(Date))
+ou  <- ou  %>% mutate(Date = as.Date(Date))
+
+# --- 3) Build an unordered "pair key" for both tables (so home/away doesn't matter) ---
+# RESULTS: from winner/loser codes
+res_keyed <- res %>%
+  mutate(
+    pair_codes = if_else(Winning.Team < Losing.Team,
+                         paste(Winning.Team, Losing.Team, sep = "-"),
+                         paste(Losing.Team, Winning.Team, sep = "-"))
+  )
+
+# OU LINES: map names to codes, then make the same unordered key
+ou_keyed <- ou %>%
+  mutate(
+    HomeCode = name_to_code[HomeTeam],
+    AwayCode = name_to_code[AwayTeam],
+    pair_codes = if_else(HomeCode < AwayCode,
+                         paste(HomeCode, AwayCode, sep = "-"),
+                         paste(AwayCode, HomeCode, sep = "-"))
+  )
+
+# --- 4) Handle doubleheaders: add an occurrence index per (Date, pair) in each table ---
+res_keyed <- res_keyed %>%
+  arrange(Date) %>%
+  group_by(Date, pair_codes) %>%
+  mutate(game_n = row_number()) %>%
+  ungroup()
+
+ou_keyed <- ou_keyed %>%
+  arrange(Date) %>%
+  group_by(Date, pair_codes) %>%
+  mutate(game_n = row_number()) %>%
+  ungroup()
+
+# --- 5) Preserve original order of RESULTS ---
+res_keyed <- res_keyed %>% mutate(row_id = row_number())
+
+# --- 6) Join O/U onto RESULTS by Date + pair + occurrence ---
+merged <- res_keyed %>%
+  left_join(
+    ou_keyed %>% select(Date, pair_codes, game_n, OU_Line, OU_Result,
+                        HomeTeam, AwayTeam, HomeCode, AwayCode),
+    by = c("Date","pair_codes","game_n")
+  ) %>%
+  arrange(row_id) %>%      # restore original order
+  select(-row_id)
+
+# --- 7) Save the merged file ---
+write_csv(merged, "Unnecessary Documents/mlb2023_results_with_OU.csv")
+
+```
+
+```{r}
+# --- files ---
+res <- read_csv("Unnecessary Documents/mlb2023_results.csv")   # has Year/Date/Winner/Loser/Scores/Total.Score/Margin
+ou  <- read_csv("Unnecessary Documents/OU_Lines_2023.csv")     # has Date, HomeTeam, AwayTeam, OU_Result (and maybe OU_Line)
+
+# --- team name map: OddsShark -> Retrosheet codes ---
+name_to_code <- c(
+  "Arizona"="ARI","Atlanta"="ATL","Baltimore"="BAL","Boston"="BOS",
+  "Chi Cubs"="CHN","Chicago Cubs"="CHN",
+  "Chi White Sox"="CHA","Chicago White Sox"="CHA",
+  "Cincinnati"="CIN","Cleveland"="CLE","Colorado"="COL","Detroit"="DET",
+  "Houston"="HOU","Kansas City"="KCA",
+  "LA Angels"="ANA","Los Angeles Angels"="ANA",
+  "LA Dodgers"="LAN","Los Angeles Dodgers"="LAN",
+  "Miami"="MIA","Milwaukee"="MIL","Minnesota"="MIN",
+  "NY Mets"="NYN","New York Mets"="NYN",
+  "NY Yankees"="NYA","New York Yankees"="NYA",
+  "Oakland"="OAK","Philadelphia"="PHI","Pittsburgh"="PIT",
+  "San Diego"="SDN","San Francisco"="SFN",
+  "Seattle"="SEA","St. Louis"="SLN","Tampa Bay"="TBA",
+  "Texas"="TEX","Toronto"="TOR","Washington"="WAS"
+)
+
+# ensure Date is Date
+res <- res %>% mutate(Date = as.Date(Date))
+ou  <- ou  %>% mutate(Date = as.Date(Date))
+
+# --- unordered team-pair key (home/away agnostic) ---
+res_keyed <- res %>%
+  mutate(
+    pair_codes = if_else(Winning.Team < Losing.Team,
+                         paste(Winning.Team, Losing.Team, sep = "-"),
+                         paste(Losing.Team, Winning.Team, sep = "-"))
+  ) %>%
+  arrange(Date) %>%
+  group_by(Date, pair_codes) %>%
+  mutate(game_n = row_number()) %>%   # handles doubleheaders
+  ungroup() %>%
+  mutate(row_id = row_number())       # preserve original order
+
+ou_keyed <- ou %>%
+  mutate(
+    HomeCode = name_to_code[HomeTeam],
+    AwayCode = name_to_code[AwayTeam],
+    pair_codes = if_else(HomeCode < AwayCode,
+                         paste(HomeCode, AwayCode, sep = "-"),
+                         paste(AwayCode, HomeCode, sep = "-"))
+  ) %>%
+  arrange(Date) %>%
+  group_by(Date, pair_codes) %>%
+  mutate(game_n = row_number()) %>%
+  ungroup()
+
+# --- join, restore order, and keep only requested columns ---
+final <- res_keyed %>%
+  left_join(
+    ou_keyed %>% select(Date, pair_codes, game_n, OU_Result),
+    by = c("Date","pair_codes","game_n")
+  ) %>%
+  arrange(row_id) %>%
+  select(
+    Year, Date,
+    `Winning Team` = Winning.Team,
+    `Losing Team`  = Losing.Team,
+    `Winning Score`= Winning.Score,
+    `Losing Score` = Losing.Score,
+    `Total Score`  = Total.Score,
+    Margin,
+    `OU Result`    = OU_Result
+  )
+
+# write it out
+write_csv(final, "Unnecessary Documents/mlb2023_results_with_OU_MINIMAL_RCODE.csv")
+
+# quick sanity check
+cat("Rows:", nrow(final), "\nMissing OU results:", sum(is.na(final$`OU Result`)), "\n")
+
+```
+
+```{r}
+# 1) Read your export
+raw <- read_excel("Unnecessary Documents/Oddsshark - 2024.xlsx")
+
+# 2) Clean into a tidy O/U dataset
+ou_lines <- raw %>%
+  filter(!is.na(date), !is.na(`team 2`)) %>%
+  transmute(
+    Date      = as.Date(date),
+    Team      = `team 1`,
+    Opponent0 = `team 2`,
+    # Home/Away based on the leading marker in Opponent0 ("vs" = home, "@" = away)
+    HomeAway  = case_when(
+      str_starts(Opponent0, "vs") ~ "Home",
+      str_starts(Opponent0, "@")  ~ "Away",
+      TRUE ~ NA_character_
+    ),
+    Opponent  = str_remove(Opponent0, "^(vs|@)\\s*"),
+    OU_Result = `O/U`,           # column with O/U result
+    OU_Line   = as.numeric(`Lines`) # column with O/U line
+  ) %>%
+  # Create explicit HomeTeam/AwayTeam
+  mutate(
+    HomeTeam = if_else(HomeAway == "Home", Team, Opponent),
+    AwayTeam = if_else(HomeAway == "Home", Opponent, Team)
+  ) %>%
+  # Keep only one row per game (home perspective)
+  filter(HomeAway == "Home") %>%
+  distinct(Date, HomeTeam, AwayTeam, .keep_all = TRUE) %>%
+  arrange(Date, HomeTeam, AwayTeam)
+
+# 3) Check the result
+head(ou_lines)
+
+# 4) Save to CSV for joining with Retrosheet scores
+write.csv(ou_lines, "Unnecessary Documents/OU_Lines_2024.csv", row.names = FALSE)
+
+```
+
+```{r}
+# --- 1) Load your files ---
+res <- read_csv("Unnecessary Documents/mlb2024_results.csv")   # Year, Date, Winning.Team, Losing.Team, ...
+ou  <- read_csv("Unnecessary Documents/OU_Lines_2024.csv")     # Date, HomeTeam, AwayTeam, OU_Line, OU_Result, ...
+
+# --- 2) Map OddsShark team names -> Retrosheet 3-letter codes ---
+name_to_code <- c(
+  "Arizona"="ARI","Atlanta"="ATL","Baltimore"="BAL","Boston"="BOS",
+  "Chi Cubs"="CHN","Chi White Sox"="CHA","Cincinnati"="CIN","Cleveland"="CLE",
+  "Colorado"="COL","Detroit"="DET","Houston"="HOU","Kansas City"="KCA",
+  "LA Angels"="ANA","LA Dodgers"="LAN","Miami"="MIA","Milwaukee"="MIL",
+  "Minnesota"="MIN","NY Mets"="NYN","NY Yankees"="NYA","Oakland"="OAK",
+  "Philadelphia"="PHI","Pittsburgh"="PIT","San Diego"="SDN","San Francisco"="SFN",
+  "Seattle"="SEA","St. Louis"="SLN","Tampa Bay"="TBA","Texas"="TEX",
+  "Toronto"="TOR","Washington"="WAS"
+)
+
+# Ensure Date is Date type
+res <- res %>% mutate(Date = as.Date(Date))
+ou  <- ou  %>% mutate(Date = as.Date(Date))
+
+# --- 3) Build an unordered "pair key" for both tables (so home/away doesn't matter) ---
+# RESULTS: from winner/loser codes
+res_keyed <- res %>%
+  mutate(
+    pair_codes = if_else(Winning.Team < Losing.Team,
+                         paste(Winning.Team, Losing.Team, sep = "-"),
+                         paste(Losing.Team, Winning.Team, sep = "-"))
+  )
+
+# OU LINES: map names to codes, then make the same unordered key
+ou_keyed <- ou %>%
+  mutate(
+    HomeCode = name_to_code[HomeTeam],
+    AwayCode = name_to_code[AwayTeam],
+    pair_codes = if_else(HomeCode < AwayCode,
+                         paste(HomeCode, AwayCode, sep = "-"),
+                         paste(AwayCode, HomeCode, sep = "-"))
+  )
+
+# --- 4) Handle doubleheaders: add an occurrence index per (Date, pair) in each table ---
+res_keyed <- res_keyed %>%
+  arrange(Date) %>%
+  group_by(Date, pair_codes) %>%
+  mutate(game_n = row_number()) %>%
+  ungroup()
+
+ou_keyed <- ou_keyed %>%
+  arrange(Date) %>%
+  group_by(Date, pair_codes) %>%
+  mutate(game_n = row_number()) %>%
+  ungroup()
+
+# --- 5) Preserve original order of RESULTS ---
+res_keyed <- res_keyed %>% mutate(row_id = row_number())
+
+# --- 6) Join O/U onto RESULTS by Date + pair + occurrence ---
+merged <- res_keyed %>%
+  left_join(
+    ou_keyed %>% select(Date, pair_codes, game_n, OU_Line, OU_Result,
+                        HomeTeam, AwayTeam, HomeCode, AwayCode),
+    by = c("Date","pair_codes","game_n")
+  ) %>%
+  arrange(row_id) %>%      # restore original order
+  select(-row_id)
+
+# --- 7) Save the merged file ---
+write_csv(merged, "Unnecessary Documents/mlb2024_results_with_OU.csv")
+
+```
+
+```{r}
+# --- files ---
+res <- read_csv("Unnecessary Documents/mlb2024_results.csv")   # has Year/Date/Winner/Loser/Scores/Total.Score/Margin
+ou  <- read_csv("Unnecessary Documents/OU_Lines_2024.csv")     # has Date, HomeTeam, AwayTeam, OU_Result (and maybe OU_Line)
+
+# --- team name map: OddsShark -> Retrosheet codes ---
+name_to_code <- c(
+  "Arizona"="ARI","Atlanta"="ATL","Baltimore"="BAL","Boston"="BOS",
+  "Chi Cubs"="CHN","Chicago Cubs"="CHN",
+  "Chi White Sox"="CHA","Chicago White Sox"="CHA",
+  "Cincinnati"="CIN","Cleveland"="CLE","Colorado"="COL","Detroit"="DET",
+  "Houston"="HOU","Kansas City"="KCA",
+  "LA Angels"="ANA","Los Angeles Angels"="ANA",
+  "LA Dodgers"="LAN","Los Angeles Dodgers"="LAN",
+  "Miami"="MIA","Milwaukee"="MIL","Minnesota"="MIN",
+  "NY Mets"="NYN","New York Mets"="NYN",
+  "NY Yankees"="NYA","New York Yankees"="NYA",
+  "Oakland"="OAK","Philadelphia"="PHI","Pittsburgh"="PIT",
+  "San Diego"="SDN","San Francisco"="SFN",
+  "Seattle"="SEA","St. Louis"="SLN","Tampa Bay"="TBA",
+  "Texas"="TEX","Toronto"="TOR","Washington"="WAS"
+)
+
+# ensure Date is Date
+res <- res %>% mutate(Date = as.Date(Date))
+ou  <- ou  %>% mutate(Date = as.Date(Date))
+
+# --- unordered team-pair key (home/away agnostic) ---
+res_keyed <- res %>%
+  mutate(
+    pair_codes = if_else(Winning.Team < Losing.Team,
+                         paste(Winning.Team, Losing.Team, sep = "-"),
+                         paste(Losing.Team, Winning.Team, sep = "-"))
+  ) %>%
+  arrange(Date) %>%
+  group_by(Date, pair_codes) %>%
+  mutate(game_n = row_number()) %>%   # handles doubleheaders
+  ungroup() %>%
+  mutate(row_id = row_number())       # preserve original order
+
+ou_keyed <- ou %>%
+  mutate(
+    HomeCode = name_to_code[HomeTeam],
+    AwayCode = name_to_code[AwayTeam],
+    pair_codes = if_else(HomeCode < AwayCode,
+                         paste(HomeCode, AwayCode, sep = "-"),
+                         paste(AwayCode, HomeCode, sep = "-"))
+  ) %>%
+  arrange(Date) %>%
+  group_by(Date, pair_codes) %>%
+  mutate(game_n = row_number()) %>%
+  ungroup()
+
+# --- join, restore order, and keep only requested columns ---
+final <- res_keyed %>%
+  left_join(
+    ou_keyed %>% select(Date, pair_codes, game_n, OU_Result),
+    by = c("Date","pair_codes","game_n")
+  ) %>%
+  arrange(row_id) %>%
+  select(
+    Year, Date,
+    `Winning Team` = Winning.Team,
+    `Losing Team`  = Losing.Team,
+    `Winning Score`= Winning.Score,
+    `Losing Score` = Losing.Score,
+    `Total Score`  = Total.Score,
+    Margin,
+    `OU Result`    = OU_Result
+  )
+
+# write it out
+write_csv(final, "Unnecessary Documents/mlb2024_results_with_OU_MINIMAL_RCODE.csv")
+
+# quick sanity check
+cat("Rows:", nrow(final), "\nMissing OU results:", sum(is.na(final$`OU Result`)), "\n")
+```

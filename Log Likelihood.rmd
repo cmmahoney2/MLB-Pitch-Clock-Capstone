@@ -1,0 +1,274 @@
+---
+title: "new"
+output: html_document
+date: "2025-10-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readr)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+```
+
+
+```{r}
+
+# --- Helper: Log-likelihood ratio (G²) vs 50/50 (excluding pushes) ---
+g2_50 <- function(O, U) {
+  n <- O + U
+  if (n == 0) return(c(G2 = NA_real_, p = NA_real_))
+  E <- n / 2
+  term <- 0
+  if (O > 0) term <- term + O * log(O / E)
+  if (U > 0) term <- term + U * log(U / E)
+  G2 <- 2 * term
+  p  <- pchisq(G2, df = 1, lower.tail = FALSE)
+  c(G2 = G2, p = p)
+}
+
+# ---- Function to process a single season ----
+analyze_season_series <- function(file_path, season_year) {
+
+  message("\n---- Processing ", season_year, " ----")
+
+  # Load data and clean
+  df <- read_csv(file_path, show_col_types = FALSE) %>%
+    mutate(
+      Date = lubridate::mdy(Date),
+      OU = dplyr::recode(`OU Result`,
+                         "Over"="O","OVER"="O",
+                         "Under"="U","UNDER"="U",
+                         "Push"="P","PUSH"="P",
+                         .default=`OU Result`),
+      game_id = row_number()
+    )
+
+  # Each team appears once per game (as winner/loser)
+  appear <- bind_rows(
+    df %>% transmute(game_id, Date, Team = `Winning Team`, Opp = `Losing Team`, OU),
+    df %>% transmute(game_id, Date, Team = `Losing Team`,  Opp = `Winning Team`, OU)
+  ) %>%
+    arrange(Team, Date) %>%
+    group_by(Team) %>%
+    mutate(Series = cumsum(Opp != lag(Opp, default = first(Opp)))) %>%
+    ungroup()
+
+  # Limit to first 4 series per team
+  first4 <- appear %>% filter(Series <= 4)
+
+  # --- Aggregate O/U/P totals by series number ---
+  by_series <- first4 %>%
+    count(Series, OU, name = "n") %>%
+    pivot_wider(names_from = OU, values_from = n, values_fill = 0) %>%
+    mutate(
+      Total = O + U + P,
+      `U%` = round(100 * U / (O + U), 1),
+      `Push%` = round(100 * P / Total, 1)
+    ) %>%
+    rowwise() %>%
+    mutate(G2 = g2_50(O, U)[["G2"]],
+           p = g2_50(O, U)[["p"]]) %>%
+    ungroup() %>%
+    arrange(Series) %>%
+    transmute(Label = paste0("Series ", Series),
+              O, U, P, Total, `U%`, `Push%`, `G^2` = G2, `p-value` = p)
+
+  # --- Add Season Totals ---
+  season <- df %>%
+    count(OU, name = "n") %>%
+    pivot_wider(names_from = OU, values_from = n, values_fill = 0) %>%
+    mutate(
+      Total = O + U + P,
+      `U%` = round(100 * U / (O + U), 1),
+      `Push%` = round(100 * P / Total, 1)
+    ) %>%
+    rowwise() %>%
+    mutate(G2 = g2_50(O, U)[["G2"]],
+           p = g2_50(O, U)[["p"]]) %>%
+    ungroup() %>%
+    mutate(Label = "Season") %>%
+    select(Label, O, U, P, Total, `U%`, `Push%`, `G^2` = G2, `p-value` = p)
+
+  # --- Combine ---
+  bind_rows(by_series, season) %>%
+    mutate(Year = season_year) %>%
+    select(Year, everything())
+}
+
+# ---- Run for 2022–2024 ----
+res22 <- analyze_season_series("mlb2022_results_with_OU_MINIMAL.csv", 2022)
+res23 <- analyze_season_series("mlb2023_results_with_OU_MINIMAL.csv", 2023)
+res24 <- analyze_season_series("mlb2024_results_with_OU_MINIMAL.csv", 2024)
+
+# Combine and print all results
+final_results <- bind_rows(res22, res23, res24)
+print(final_results, n = 50)
+
+# Optional: Save to CSV
+# write_csv(final_results, "MLB_AllSeries1-4_withPushes_2022-2024.csv")
+
+
+```
+
+
+
+```{r}
+library(ggplot2)
+
+ggplot(final_results %>% filter(Label != "Season"),
+       aes(x = Label, y = `U%`, color = factor(Year), group = Year)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 50, linetype = "dashed") +
+  labs(title = "Market Adjustment Over Series (2022–2024 MLB)",
+       y = "Under Percentage (%)",
+       x = "Series Number",
+       color = "Season") +
+  theme_minimal(base_size = 14)
+
+```
+
+
+```{r}
+df <- read_csv("mlb2022_results_with_OU_MINIMAL.csv") %>%
+  mutate(Date = lubridate::mdy(Date),
+         OU = recode(`OU Result`, "Over"="O","Under"="U","Push"="P"))
+
+# Identify all series for 2022
+appear <- bind_rows(
+  df %>% transmute(Date, Team=`Winning Team`, Opp=`Losing Team`, OU),
+  df %>% transmute(Date, Team=`Losing Team`,  Opp=`Winning Team`, OU)
+) %>%
+  arrange(Team, Date) %>%
+  group_by(Team) %>%
+  mutate(Series = cumsum(Opp != lag(Opp, default = first(Opp)))) %>%
+  ungroup()
+
+# Count games per series
+series_size <- appear %>%
+  group_by(Team, Series) %>%
+  summarise(Games = n(), .groups="drop")
+
+# Tabulate how many series have 2, 3, or 4 games
+table(series_size$Games)
+
+```
+
+```{r}
+# ---------------------------------------------
+# MLB Over/Under 3-Game Series Analysis (2022–2024)
+# ---------------------------------------------
+
+# --- Helper: Log-likelihood ratio (G²) vs 50/50 (pushes excluded) ---
+g2_50 <- function(O, U) {
+  n <- O + U
+  if (n == 0) return(c(G2 = NA_real_, p = NA_real_))
+  E <- n / 2
+  term <- 0
+  if (O > 0) term <- term + O * log(O / E)
+  if (U > 0) term <- term + U * log(U / E)
+  G2 <- 2 * term
+  p  <- pchisq(G2, df = 1, lower.tail = FALSE)
+  c(G2 = G2, p = p)
+}
+
+# ---- Function to process a single season ----
+analyze_season_series <- function(file_path, season_year) {
+
+  message("\n---- Processing ", season_year, " ----")
+
+  # Load data and clean
+  df <- read_csv(file_path, show_col_types = FALSE) %>%
+    mutate(
+      Date = lubridate::mdy(Date),
+      OU = dplyr::recode(`OU Result`,
+                         "Over"="O","OVER"="O",
+                         "Under"="U","UNDER"="U",
+                         "Push"="P","PUSH"="P",
+                         .default=`OU Result`),
+      game_id = row_number()
+    )
+
+  # Each team appears once per game (as winner/loser)
+  appear <- bind_rows(
+    df %>% transmute(game_id, Date, Team = `Winning Team`, Opp = `Losing Team`, OU),
+    df %>% transmute(game_id, Date, Team = `Losing Team`,  Opp = `Winning Team`, OU)
+  ) %>%
+    arrange(Team, Date) %>%
+    group_by(Team) %>%
+    mutate(Series = cumsum(Opp != lag(Opp, default = first(Opp)))) %>%
+    ungroup()
+
+  # --- Count and filter to 3-game series only ---
+  series_counts <- appear %>%
+    group_by(Team, Series) %>%
+    tally(name = "Games")
+
+  appear <- appear %>%
+    left_join(series_counts, by = c("Team", "Series")) %>%
+    filter(Games == 3) %>%
+    select(-Games)
+
+  # Report how many series were dropped
+  total_series <- n_distinct(paste(series_counts$Team, series_counts$Series))
+  kept_series  <- n_distinct(paste(appear$Team, appear$Series))
+  dropped      <- total_series - kept_series
+  message("Kept ", kept_series, " of ", total_series, " series (", dropped, " dropped)")
+
+  # Limit to first 4 series per team
+  first4 <- appear %>% filter(Series <= 4)
+
+  # --- Aggregate O/U totals by series number ---
+  by_series <- first4 %>%
+    count(Series, OU, name = "n") %>%
+    filter(OU %in% c("O","U")) %>%
+    pivot_wider(names_from = OU, values_from = n, values_fill = 0) %>%
+    mutate(Total = O + U,
+           `U%` = round(100 * U / Total, 1)) %>%
+    rowwise() %>%
+    mutate(G2 = g2_50(O, U)[["G2"]],
+           p = g2_50(O, U)[["p"]]) %>%
+    ungroup() %>%
+    arrange(Series) %>%
+    transmute(Label = paste0("Series ", Series),
+              O, U, Total, `U%`, `G^2` = G2, `p-value` = p)
+
+  # --- Add Season Totals (3-game series only) ---
+  season <- appear %>%
+    count(OU, name = "n") %>%
+    filter(OU %in% c("O","U")) %>%
+    pivot_wider(names_from = OU, values_from = n, values_fill = 0) %>%
+    mutate(Total = O + U,
+           `U%` = round(100 * U / Total, 1)) %>%
+    rowwise() %>%
+    mutate(G2 = g2_50(O, U)[["G2"]],
+           p = g2_50(O, U)[["p"]]) %>%
+    ungroup() %>%
+    mutate(Label = "Season") %>%
+    select(Label, O, U, Total, `U%`, `G^2` = G2, `p-value` = p)
+
+  # --- Combine and return ---
+  bind_rows(by_series, season) %>%
+    mutate(Year = season_year) %>%
+    select(Year, everything())
+}
+
+# ---- Run for 2022–2024 ----
+res22 <- analyze_season_series("mlb2022_results_with_OU_MINIMAL.csv", 2022)
+res23 <- analyze_season_series("mlb2023_results_with_OU_MINIMAL.csv", 2023)
+res24 <- analyze_season_series("mlb2024_results_with_OU_MINIMAL.csv", 2024)
+
+# Combine and print all results
+final_results <- bind_rows(res22, res23, res24)
+print(final_results, n = 50)
+
+# Optional: save to CSV
+# write_csv(final_results, "MLB_3GameSeries1-4_FairBetResults_2022-2024.csv")
+
+```
+
